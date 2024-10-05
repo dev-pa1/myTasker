@@ -91,10 +91,6 @@ export const EditWorkspaceForm = ({ onCancel, initialValues }: EditWorkspaceForm
 
     resetInviteCode({
       param: { workspaceId: initialValues.$id },
-    }, {
-      onSuccess: () => {
-        router.refresh();
-      },
     });
   };
 
@@ -104,14 +100,13 @@ export const EditWorkspaceForm = ({ onCancel, initialValues }: EditWorkspaceForm
       image: values.image instanceof File ? values.image : "",
     };
 
-    mutate({ 
+    mutate({
       form: finalValues,
       param: { workspaceId: initialValues.$id }
     }, {
-      onSuccess: ({ data }) => {
+      onSuccess: () => {
         form.reset();
-        router.push(`/workspaces/${data.$id}`);
-      }
+      },
     });
   };
 
