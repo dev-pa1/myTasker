@@ -1,5 +1,4 @@
 import { Models } from "node-appwrite";
-import { Project } from "../projects/types";
 
 export enum TaskStatus {
   BACKLOG = "BACKLOG",
