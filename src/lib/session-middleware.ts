@@ -1,58 +1,54 @@
 import "server-only";
 
-import { 
-  Account,
-  Client,
-  Databases,
-  Models,
-  Storage,
-  type Account as AccountType,
-  type Databases as DatabasesType,
-  type Storage as StorageType,
-  type Users as UsersType,
-} from "node-appwrite";
-
 import { getCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 
 import { AUTH_COOKIE } from "@/features/auth/constants";
 
+import { connectToDatabase } from "./mongodb";
+import { verifySessionToken } from "./session";
+import { UserModel } from "@/models/user.model";
+
+export type SessionUser = {
+  $id: string;
+  name: string;
+  email: string;
+};
+
 type AdditionalContext = {
   Variables: {
-    account: AccountType;
-    databases: DatabasesType;
-    storage: StorageType;
-    users: UsersType;
-    user: Models.User<Models.Preferences>;
+    user: SessionUser;
   };
 };
 
 export const sessionMiddleware = createMiddleware<AdditionalContext>(
   async (c, next) => {
-    const client = new Client()
-      .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-      .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT!);
+    const token = getCookie(c, AUTH_COOKIE);
 
-    const session = getCookie(c, AUTH_COOKIE);
-
-    if (!session) {
+    if (!token) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    client.setSession(session);
+    const payload = verifySessionToken(token);
 
-    const account = new Account(client);
-    const databases = new Databases(client);
-    const storage = new Storage(client);
+    if (!payload) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
 
-    const user = await account.get();
+    await connectToDatabase();
 
-    c.set("account", account);
-    c.set("databases", databases);
-    c.set("storage", storage);
-    c.set("user", user);
+    const user = await UserModel.findById(payload.userId);
+
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    c.set("user", {
+      $id: user.id,
+      name: user.name,
+      email: user.email,
+    });
 
     await next();
   },
 );
-

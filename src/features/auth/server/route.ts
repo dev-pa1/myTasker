@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { ID } from "node-appwrite";
+import bcrypt from "bcryptjs";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { zValidator } from "@hono/zod-validator";
 
-import { createAdminClient } from "@/lib/appwrite";
+import { connectToDatabase } from "@/lib/mongodb";
+import { createSessionToken } from "@/lib/session";
 import { sessionMiddleware } from "@/lib/session-middleware";
+import { UserModel } from "@/models/user.model";
 
 import { AUTH_COOKIE } from "../constants";
 import { loginSchema, registerSchema } from "../schemas";
@@ -25,13 +27,23 @@ const app = new Hono()
     async (c) => {
       const { email, password } = c.req.valid("json");
 
-      const { account } = await createAdminClient();
-      const session = await account.createEmailPasswordSession(
-        email,
-        password,
-      );
+      await connectToDatabase();
 
-      setCookie(c, AUTH_COOKIE, session.secret, {
+      const user = await UserModel.findOne({ email: email.toLowerCase() });
+
+      if (!user) {
+        return c.json({ error: "Invalid email or password" }, 401);
+      }
+
+      const isValid = await bcrypt.compare(password, user.password);
+
+      if (!isValid) {
+        return c.json({ error: "Invalid email or password" }, 401);
+      }
+
+      const token = createSessionToken({ userId: user.id });
+
+      setCookie(c, AUTH_COOKIE, token, {
         path: "/",
         httpOnly: true,
         secure: true,
@@ -48,20 +60,25 @@ const app = new Hono()
     async (c) => {
       const { name, email, password } = c.req.valid("json");
 
-      const { account } = await createAdminClient();
-      await account.create(
-        ID.unique(),
-        email,
-        password,
+      await connectToDatabase();
+
+      const existingUser = await UserModel.findOne({ email: email.toLowerCase() });
+
+      if (existingUser) {
+        return c.json({ error: "An account with this email already exists" }, 409);
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const user = await UserModel.create({
         name,
-      );
+        email: email.toLowerCase(),
+        password: hashedPassword,
+      });
 
-      const session = await account.createEmailPasswordSession(
-        email,
-        password,
-      );
+      const token = createSessionToken({ userId: user.id });
 
-      setCookie(c, AUTH_COOKIE, session.secret, {
+      setCookie(c, AUTH_COOKIE, token, {
         path: "/",
         httpOnly: true,
         secure: true,
@@ -73,10 +90,7 @@ const app = new Hono()
     }
   )
   .post("/logout", sessionMiddleware, async (c) => {
-    const account = c.get("account");
-
     deleteCookie(c, AUTH_COOKIE);
-    await account.deleteSession("current");
 
     return c.json({ success: true });
   });
